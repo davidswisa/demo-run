@@ -92,14 +92,14 @@ def _hline(stdscr, row: int, width: int, attr: int, left: str = "├", right: st
     _safe_addnstr(stdscr, row, 0, left + "─" * (width - 2) + right, width, attr)
 
 
-def _draw(stdscr, commands, variables, selected, output_lines, status, status_attr, colors):
+def _draw(stdscr, commands, variables, selected, output_lines, output_offset, status, status_attr, colors):
     stdscr.erase()
     h, w = stdscr.getmaxyx()
     w = max(w, 20)
 
     # top border + title
     _safe_addnstr(stdscr, 0, 0, "╭" + "─" * (w - 2) + "╮", w, colors["border"])
-    title = " Shell demo — ↑/↓ navigate  ↵ run  q quit "
+    title = " Shell demo — ↑/↓ navigate  ↵ run  PgUp/PgDn scroll  q quit "
     _safe_addnstr(stdscr, 0, max(2, (w - len(title)) // 2), title, w - 4, colors["title"])
 
     # command panel
@@ -149,25 +149,45 @@ def _draw(stdscr, commands, variables, selected, output_lines, status, status_at
     out_start = cmd_end + 4
     max_out = h - out_start - 1
     if max_out > 0:
-        visible = output_lines[-max_out:]
+        total = len(output_lines)
+        scrollable = total > max_out
+        max_offset = max(0, total - max_out)
+        offset = max(0, min(output_offset, max_offset))
+        start = max(0, total - max_out - offset)
+        visible = output_lines[start : start + max_out]
         for i in range(max_out):
             row = out_start + i
             _safe_addnstr(stdscr, row, 0, "│", 1, colors["border"])
-            _safe_addnstr(stdscr, row, w - 1, "│", 1, colors["border"])
+            if not scrollable:
+                _safe_addnstr(stdscr, row, w - 1, "│", 1, colors["border"])
             if i < len(visible):
                 line = visible[i]
                 attr = curses.A_NORMAL
+                # Reserve one column for the scrollbar/border on the right.
+                content_w = w - 5
                 if line.startswith("$ "):
                     _safe_addnstr(stdscr, row, 2, "$", 1, colors["prompt"])
-                    _safe_addnstr(stdscr, row, 4, line[2:][: w - 6], w - 6, colors["cmd"])
+                    _safe_addnstr(stdscr, row, 4, line[2:][:content_w - 1], content_w - 1, colors["cmd"])
                     continue
                 if line.startswith("  "):
                     # Continuation of a multi-line command; keep the cmd styling aligned.
-                    _safe_addnstr(stdscr, row, 4, line[2:][: w - 6], w - 6, colors["cmd"])
+                    _safe_addnstr(stdscr, row, 4, line[2:][:content_w - 1], content_w - 1, colors["cmd"])
                     continue
                 if line.startswith("extracted:"):
                     attr = colors["extract"]
-                _safe_addnstr(stdscr, row, 2, line[: w - 4], w - 4, attr)
+                _safe_addnstr(stdscr, row, 2, line[:content_w + 1], content_w + 1, attr)
+
+        if scrollable:
+            # Thumb sized proportionally; offset==0 pins it to the bottom.
+            thumb = max(1, (max_out * max_out) // total)
+            free = max_out - thumb
+            thumb_top = free - round((offset / max_offset) * free) if max_offset else free
+            for i in range(max_out):
+                row = out_start + i
+                if thumb_top <= i < thumb_top + thumb:
+                    _safe_addnstr(stdscr, row, w - 1, "█", 1, colors["prompt"])
+                else:
+                    _safe_addnstr(stdscr, row, w - 1, "░", 1, colors["dim"])
 
     # bottom border (write left corner + line, then last corner via insstr to dodge the
     # ERR you get when addnstr writes into the bottom-right cell)
@@ -187,23 +207,33 @@ def interactive(stdscr, commands: list[Command], variables: dict[str, str]) -> N
 
     selected = 0
     output_lines: list[str] = []
+    output_offset = 0  # lines scrolled up from the bottom; 0 pins to newest.
     status = "Ready."
     status_attr = colors["dim"]
 
     while True:
-        _draw(stdscr, commands, variables, selected, output_lines, status, status_attr, colors)
+        _draw(stdscr, commands, variables, selected, output_lines, output_offset, status, status_attr, colors)
         key = stdscr.getch()
 
         if key in (curses.KEY_UP, ord("k")):
             selected = max(0, selected - 1)
         elif key in (curses.KEY_DOWN, ord("j")):
             selected = min(len(commands) - 1, selected + 1)
+        elif key == curses.KEY_PPAGE:
+            output_offset = min(output_offset + 10, len(output_lines))
+        elif key == curses.KEY_NPAGE:
+            output_offset = max(output_offset - 10, 0)
+        elif key == curses.KEY_HOME:
+            output_offset = len(output_lines)
+        elif key == curses.KEY_END:
+            output_offset = 0
         elif key in (curses.KEY_ENTER, 10, 13):
             item = commands[selected]
             cmd = render(item.command, variables)
             status = f"Running: {cmd}"
             status_attr = colors["title"]
-            _draw(stdscr, commands, variables, selected, output_lines, status, status_attr, colors)
+            output_offset = 0
+            _draw(stdscr, commands, variables, selected, output_lines, output_offset, status, status_attr, colors)
             output, rc = run(cmd)
             cmd_lines = cmd.splitlines() or [""]
             output_lines = [f"$ {cmd_lines[0]}"] + [f"  {ln}" for ln in cmd_lines[1:]]
@@ -296,6 +326,14 @@ EOF''',
         Command(
             description="get qkview",
             command="kubectl f5ops qkview get $QKVIEW_ID",
+        ),
+         Command(
+            description="get qkview",
+            command="kubectl f5ops qkview get b3a709ea-647b-49ab-83dc-761efeab37a9",
+        ),
+         Command(
+            description="get qkview",
+            command="kubectl f5ops qkview get b3a709ea-647b-49ab-83dc-761efeab37a9",
         ),
     ]
 
