@@ -253,18 +253,23 @@ def interactive(stdscr, commands: list[Command], variables: dict[str, str]) -> N
 
 if __name__ == "__main__":
     variables = load_env(Path(__file__).with_name(".env"))
+    # Log Level Demo
 
     commands = [
         Command(
-            description="List current log levels",
+            description="Log Level - List current log levels",
             command="kubectl get loglevel -n $NAMESPACE",
         ),
         Command(
-            description="Get a pod log levels",
+            description="Log Level - Get a pod log levels",
             command="kubectl get loglevel $NAME -n $NAMESPACE",
         ),
         Command(
-            description=f"Set log level of $CONTAINER to $LEVEL using replace",
+            description="Log Level - get log levels resource to show initial state",
+            command="kubectl get loglevel $NAME -n $NAMESPACE -oyaml",
+        ),
+        Command(
+            description=f"Log Level - Set log level of $CONTAINER to $LEVEL using replace",
             command='''kubectl replace -f - <<EOF
 apiVersion: ops.f5net.com/v1alpha1
 kind: LogLevel
@@ -278,15 +283,20 @@ spec:
 EOF''',
         ),
         Command(
-            description="list log levels to verify the change",
+            description="Log Level - get log levels resource after the change",
+            command="kubectl get loglevel $NAME -n $NAMESPACE -oyaml",
+        ),
+        Command(
+            description="Log Level - list log levels to verify the change",
             command="kubectl get loglevel -n $NAMESPACE",
         ),
         Command(
-            description=f"ReSet log level of $CONTAINER to DEFAULT",
+            description=f"Log Level - ReSet log level of $CONTAINER to DEFAULT",
             command="kubectl delete loglevel $NAME -n $NAMESPACE",
         ),
+       
         Command(
-            description="List log levels to verify the reset",
+            description="Log Level - List log levels to verify the reset",
             command="kubectl get loglevel -n $NAMESPACE",
         ),
         Command(
@@ -315,7 +325,85 @@ EOF''',
         ),
 
         Command(
-            description="create a qkview",
+            description=f"EDIT - Set log level of $CONTAINER to NOTICE",
+            command="kubectl f5ops loglevel set $NAME $CONTAINER NOTICE -n $NAMESPACE",
+        ),
+        Command(
+            description="EDIT - List log levels to verify the reset",
+            command="kubectl f5ops loglevel list -n $NAMESPACE",
+        ),
+        Command(
+            description=f"EDIT - Set log level of $CONTAINER2 to NOTICE",
+            command="kubectl f5ops loglevel set $NAME $CONTAINER2 ERROR -n $NAMESPACE",
+        ),
+        Command(
+            description="EDIT - List log levels to verify the reset",
+            command="kubectl f5ops loglevel list -n $NAMESPACE",
+        ),
+        Command(
+            description=f"EDIT - Edit log level resource directly",
+            command="kubectl edit loglevel $NAME -n $NAMESPACE",
+        ),
+        Command(
+            description="EDIT - List log levels to verify the reset",
+            command="kubectl f5ops loglevel list -n $NAMESPACE",
+        ),
+        Command(
+            description=f"EDIT - Edit log level resource directly using f5ops plugin",
+            command="kubectl f5ops loglevel edit $NAME -n $NAMESPACE",
+        ),
+        Command(
+            description="EDIT - List log levels to verify the reset",
+            command="kubectl f5ops loglevel list -n $NAMESPACE",
+        ),
+        Command(
+            description=f"EDIT - ReSet log level of $CONTAINER to DEFAULT",
+            command="kubectl f5ops loglevel reset $NAME -n $NAMESPACE",
+        ),
+        # Nostdout Demo
+
+        # $ kubectl logs -f f5-toda-kal-6696d6b448-j8k9w -c f5-toda-kal -n kal-ns
+        # kubectl f5ops loglevel get kal -n kal-ns -oyaml    
+        Command(
+            description=f"NoStdout - watch the log level resource",
+            command="watch -d -n 0.5 kubectl f5ops loglevel get $NAME -n $NAMESPACE -oyaml",
+        ),
+        Command(
+            description=f"NoStdout - Set log level of $CONTAINER to DEBUG",
+            command="kubectl f5ops loglevel set $NAME $CONTAINER DEBUG -n $NAMESPACE",
+        ),
+        # TODO: this is not working as expected, need to check the command and the resource
+        Command(
+            description=f"NoStdout - Set NoStdout for resource",
+            command="kubectl patch loglevel $NAME -n $NAMESPACE --type=merge -p '{\"spec\":{\"containers\":{\"$CONTAINER\":{\"nostdout\":\"ENABLED\"}}}}'",
+        ),
+        # Command(
+        #     description=f"NoStdout - Set NoStdout for resource",
+        #     command="kubectl patch loglevel $NAME -n $NAMESPACE --type=merge -p '{\"spec\":{\"containers\":{\"$CONTAINER\":{\"nostdout\":\"DISABLED\"}}}}'",
+        # ),
+        # Command(
+        #     description="NoStdout - get log levels resource to verify the change",
+        #     command="kubectl f5ops loglevel get $NAME -n $NAMESPACE -oyaml",
+        # ),
+
+        # TODO: this is not working as expected, need to check the command and the resource
+        Command(
+            description=f"NoStdout - Set NoStdout for resource",
+            command="kubectl f5ops loglevel patch $NAME -n $NAMESPACE --type=json -p '[{\"op\":\"replace\",\"path\":\"/spec/containers/$CONTAINER/nostdout\",\"value\":\"DISABLED\"}]'",
+        ),
+
+        Command(
+            description=f"NoStdout - ReSet log level of $CONTAINER to DEFAULT",
+            command="kubectl f5ops loglevel reset $NAME -n $NAMESPACE",
+        ),
+
+        # Qkview Demo
+        Command(
+            description="Qkview - List qkview",
+            command="kubectl f5ops qkview list",
+        ),
+        Command(
+            description="Qkview - Create a qkview",
             command="kubectl f5ops qkview create",
             post=lambda out, v: (
                 v.update(QKVIEW_ID=m.group(0)) or f"QKVIEW_ID = {m.group(0)}"
@@ -324,15 +412,15 @@ EOF''',
             ),
         ),
         Command(
-            description="get qkview",
+            description="Qkview - Get qkview",
             command="kubectl f5ops qkview get $QKVIEW_ID",
         ),
          Command(
-            description="get qkview",
+            description="Qkview - Get qkview",
             command="kubectl f5ops qkview get b3a709ea-647b-49ab-83dc-761efeab37a9",
         ),
          Command(
-            description="get qkview",
+            description="Qkview - Get qkview",
             command="kubectl f5ops qkview get b3a709ea-647b-49ab-83dc-761efeab37a9",
         ),
     ]
