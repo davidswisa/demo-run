@@ -32,6 +32,8 @@ class Command:
     command: str
     # post(output, variables) -> optional display string; may mutate variables.
     post: Optional[Callable[[str, dict[str, str]], Optional[str]]] = None
+    # When True, Enter shows the rendered command but does not execute it.
+    dontExecute: bool = False
 
 
 def render(cmd: str, variables: dict[str, str]) -> str:
@@ -230,12 +232,18 @@ def interactive(stdscr, commands: list[Command], variables: dict[str, str]) -> N
         elif key in (curses.KEY_ENTER, 10, 13):
             item = commands[selected]
             cmd = render(item.command, variables)
+            output_offset = 0
+            cmd_lines = cmd.splitlines() or [""]
+            if item.dontExecute:
+                output_lines = [f"$ {cmd_lines[0]}"] + [f"  {ln}" for ln in cmd_lines[1:]]
+                output_lines += ["", "<skipped: dontExecute=True>"]
+                status = "Skipped (dontExecute)"
+                status_attr = colors["dim"]
+                continue
             status = f"Running: {cmd}"
             status_attr = colors["title"]
-            output_offset = 0
             _draw(stdscr, commands, variables, selected, output_lines, output_offset, status, status_attr, colors)
             output, rc = run(cmd)
-            cmd_lines = cmd.splitlines() or [""]
             output_lines = [f"$ {cmd_lines[0]}"] + [f"  {ln}" for ln in cmd_lines[1:]]
             output_lines += output.splitlines()
             if item.post is not None:
@@ -343,6 +351,7 @@ EOF''',
         Command(
             description=f"EDIT - Edit log level resource directly",
             command="kubectl edit loglevel $NAME -n $NAMESPACE",
+            dontExecute=True,
         ),
         Command(
             description="EDIT - List log levels to verify the reset",
@@ -351,6 +360,7 @@ EOF''',
         Command(
             description=f"EDIT - Edit log level resource directly using f5ops plugin",
             command="kubectl f5ops loglevel edit $NAME -n $NAMESPACE",
+            dontExecute=True,
         ),
         Command(
             description="EDIT - List log levels to verify the reset",
@@ -367,6 +377,7 @@ EOF''',
         Command(
             description=f"NoStdout - watch the log level resource",
             command="watch -d -n 0.5 kubectl f5ops loglevel get $NAME -n $NAMESPACE -oyaml",
+            dontExecute=True,
         ),
         Command(
             description=f"NoStdout - Set log level of $CONTAINER to DEBUG",
@@ -399,11 +410,37 @@ EOF''',
 
         # Qkview Demo
         Command(
+            description="Qkview - List qkview with watch",
+            command="kubectl get qkviews -w",
+            dontExecute=True,
+        ),
+       
+        Command(
             description="Qkview - List qkview",
-            command="kubectl f5ops qkview list",
+            command="kubectl get qkviews",
         ),
         Command(
             description="Qkview - Create a qkview",
+            command='''kubectl create -f - <<'EOF'
+apiVersion: ops.f5net.com/v1alpha1
+kind: Qkview
+metadata:
+  generateName: qkview-
+spec:
+  filename: my-qkview
+  description: "Ad-hoc diagnostic collection"
+  timeout: "120s"
+  podPatterns:
+    - "tmm-*"
+EOF''',
+        ),
+
+        Command(
+            description="Qkview with f5ops plugin - List qkview",
+            command="kubectl f5ops qkview list",
+        ),
+        Command(
+            description="Qkview with f5ops plugin - Create a qkview",
             command="kubectl f5ops qkview create",
             post=lambda out, v: (
                 v.update(QKVIEW_ID=m.group(0)) or f"QKVIEW_ID = {m.group(0)}"
@@ -412,17 +449,32 @@ EOF''',
             ),
         ),
         Command(
-            description="Qkview - Get qkview",
+            description="Qkview with f5ops plugin - Get qkview",
             command="kubectl f5ops qkview get $QKVIEW_ID",
         ),
+        Command(
+            description="Qkview with f5ops plugin - Get qkview status",
+            command="kubectl f5ops qkview status $QKVIEW_ID",
+        ),
          Command(
-            description="Qkview - Get qkview",
+            description="Qkview with f5ops plugin - Get qkview",
             command="kubectl f5ops qkview get b3a709ea-647b-49ab-83dc-761efeab37a9",
         ),
          Command(
-            description="Qkview - Get qkview",
-            command="kubectl f5ops qkview get b3a709ea-647b-49ab-83dc-761efeab37a9",
+            description="Qkview with f5ops plugin - Status qkview",
+            command="kubectl f5ops qkview status b3a709ea-647b-49ab-83dc-761efeab37a9",
         ),
+
+        # list with filter:
+        # $ kubectl f5ops qkview list --filename=file1
+
+        # $ kubectl get qkview --field-selector=filename=my-qkview2
+
+        # cancel:
+        # kubectl f5ops qkview cancel b3a709ea-647b-49ab-83dc-761efeab37a9
+
+        # download:
+        # $ "${CURL[@]}" -o qkview.tar.gz "$BASE/v1/qkview/0660666c-f423-47af-8a17-d34fa43aa083/download" -H "Authorization: Bearer $CWCCTL_TOKEN"
     ]
 
     curses.wrapper(interactive, commands, variables)
