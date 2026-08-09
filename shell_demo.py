@@ -6,8 +6,24 @@ import re
 import shlex
 import subprocess
 from dataclasses import dataclass
+from pathlib import Path
 from string import Template
 from typing import Callable, Optional
+
+
+def load_env(path: str | Path) -> dict[str, str]:
+    """Parse a minimal KEY=VALUE .env file; ignores blanks and # comments."""
+    variables: dict[str, str] = {}
+    for raw in Path(path).read_text().splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+            value = value[1:-1]
+        variables[key.strip()] = value
+    return variables
 
 
 @dataclass
@@ -23,12 +39,15 @@ def render(cmd: str, variables: dict[str, str]) -> str:
 
 
 def run(cmd: str) -> tuple[str, int]:
-    """Execute ``cmd`` and return (combined_output, returncode)."""
-    result = subprocess.run(
-        shlex.split(cmd),
-        capture_output=True,
-        text=True,
-    )
+    """Execute ``cmd`` and return (combined_output, returncode).
+
+    Multiline commands (e.g. heredocs) are run through the shell; single-line
+    commands are split with shlex to avoid an unnecessary shell wrapper.
+    """
+    if "\n" in cmd:
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+    else:
+        result = subprocess.run(shlex.split(cmd), capture_output=True, text=True)
     output = result.stdout
     if result.stderr:
         output += ("\n" if output and not output.endswith("\n") else "") + result.stderr
@@ -101,26 +120,33 @@ def _draw(stdscr, commands, variables, selected, output_lines, status, status_at
     _safe_addnstr(stdscr, 4, w - 1, "│", 1, colors["border"])
     _safe_addnstr(stdscr, 4, 2, "COMMAND", w - 4, colors["label"])
 
-    _safe_addnstr(stdscr, 5, 0, "│", 1, colors["border"])
-    _safe_addnstr(stdscr, 5, w - 1, "│", 1, colors["border"])
     rendered = render(item.command, variables)
-    _safe_addnstr(stdscr, 5, 4, "$", 1, colors["prompt"])
-    _safe_addnstr(stdscr, 5, 6, rendered[: w - 8], w - 8, colors["cmd"])
+    cmd_lines = rendered.splitlines() or [""]
+    for i, line in enumerate(cmd_lines):
+        row = 5 + i
+        _safe_addnstr(stdscr, row, 0, "│", 1, colors["border"])
+        _safe_addnstr(stdscr, row, w - 1, "│", 1, colors["border"])
+        # Only the first line gets the "$ " prompt; continuation lines are indented.
+        prompt = "$" if i == 0 else " "
+        _safe_addnstr(stdscr, row, 4, prompt, 1, colors["prompt"])
+        _safe_addnstr(stdscr, row, 6, line[: w - 8], w - 8, colors["cmd"])
+
+    cmd_end = 5 + len(cmd_lines)  # first row after the command block
 
     # status bar
-    _hline(stdscr, 6, w, colors["border"])
-    _safe_addnstr(stdscr, 7, 0, "│", 1, colors["border"])
-    _safe_addnstr(stdscr, 7, w - 1, "│", 1, colors["border"])
-    _safe_addnstr(stdscr, 7, 2, "STATUS", w - 4, colors["label"])
-    _safe_addnstr(stdscr, 7, 10, status[: w - 12], w - 12, status_attr)
+    _hline(stdscr, cmd_end, w, colors["border"])
+    _safe_addnstr(stdscr, cmd_end + 1, 0, "│", 1, colors["border"])
+    _safe_addnstr(stdscr, cmd_end + 1, w - 1, "│", 1, colors["border"])
+    _safe_addnstr(stdscr, cmd_end + 1, 2, "STATUS", w - 4, colors["label"])
+    _safe_addnstr(stdscr, cmd_end + 1, 10, status[: w - 12], w - 12, status_attr)
 
     # output panel
-    _hline(stdscr, 8, w, colors["border"])
-    _safe_addnstr(stdscr, 9, 0, "│", 1, colors["border"])
-    _safe_addnstr(stdscr, 9, w - 1, "│", 1, colors["border"])
-    _safe_addnstr(stdscr, 9, 2, "OUTPUT", w - 4, colors["label"])
+    _hline(stdscr, cmd_end + 2, w, colors["border"])
+    _safe_addnstr(stdscr, cmd_end + 3, 0, "│", 1, colors["border"])
+    _safe_addnstr(stdscr, cmd_end + 3, w - 1, "│", 1, colors["border"])
+    _safe_addnstr(stdscr, cmd_end + 3, 2, "OUTPUT", w - 4, colors["label"])
 
-    out_start = 10
+    out_start = cmd_end + 4
     max_out = h - out_start - 1
     if max_out > 0:
         visible = output_lines[-max_out:]
@@ -133,6 +159,10 @@ def _draw(stdscr, commands, variables, selected, output_lines, status, status_at
                 attr = curses.A_NORMAL
                 if line.startswith("$ "):
                     _safe_addnstr(stdscr, row, 2, "$", 1, colors["prompt"])
+                    _safe_addnstr(stdscr, row, 4, line[2:][: w - 6], w - 6, colors["cmd"])
+                    continue
+                if line.startswith("  "):
+                    # Continuation of a multi-line command; keep the cmd styling aligned.
                     _safe_addnstr(stdscr, row, 4, line[2:][: w - 6], w - 6, colors["cmd"])
                     continue
                 if line.startswith("extracted:"):
@@ -175,7 +205,9 @@ def interactive(stdscr, commands: list[Command], variables: dict[str, str]) -> N
             status_attr = colors["title"]
             _draw(stdscr, commands, variables, selected, output_lines, status, status_attr, colors)
             output, rc = run(cmd)
-            output_lines = [f"$ {cmd}"] + output.splitlines()
+            cmd_lines = cmd.splitlines() or [""]
+            output_lines = [f"$ {cmd_lines[0]}"] + [f"  {ln}" for ln in cmd_lines[1:]]
+            output_lines += output.splitlines()
             if item.post is not None:
                 try:
                     extracted = item.post(output, variables)
@@ -190,42 +222,68 @@ def interactive(stdscr, commands: list[Command], variables: dict[str, str]) -> N
 
 
 if __name__ == "__main__":
-    variables = {
-        "NAME": "kal",
-        "CONTAINER": "f5-toda-kal",
-        "NAMESPACE": "kal-ns",
-        "LEVEL": "NOTICE",
-    }
+    variables = load_env(Path(__file__).with_name(".env"))
 
     commands = [
         Command(
-            description="List current log levels across all namespaces",
-            command="kubectl f5ops ll list -A",
-            # post=lambda out: next(
-            #     (
-            #         f"{parts[1]}/{parts[2]} level = {parts[3]}"
-            #         for line in out.splitlines()
-            #         if (parts := line.split()) and len(parts) >= 5 and parts[2] == "f5-toda-kal"
-            #     ),
-            #     None,
-            # ),
+            description="List current log levels",
+            command="kubectl get loglevel -n $NAMESPACE",
         ),
         Command(
-            description=f"Set log level of $CONTAINER to $LEVEL",
-            command="kubectl f5ops ll set $NAME $CONTAINER $LEVEL -n $NAMESPACE",
+            description="Get a pod log levels",
+            command="kubectl get loglevel $NAME -n $NAMESPACE",
         ),
         Command(
-            description="Re-list log levels to verify the change",
-            command="kubectl f5ops ll list -A",
-            # post=lambda out: next(
-            #     (
-            #         f"{parts[1]}/{parts[2]} level = {parts[3]}"
-            #         for line in out.splitlines()
-            #         if (parts := line.split()) and len(parts) >= 5 and parts[2] == "f5-toda-kal"
-            #     ),
-            #     None,
-            # ),
+            description=f"Set log level of $CONTAINER to $LEVEL using replace",
+            command='''kubectl replace -f - <<EOF
+apiVersion: ops.f5net.com/v1alpha1
+kind: LogLevel
+metadata:
+  name: $NAME
+  namespace: $NAMESPACE
+spec:
+  containers:
+    $CONTAINER:
+      level: $LEVEL
+EOF''',
         ),
+        Command(
+            description="list log levels to verify the change",
+            command="kubectl get loglevel -n $NAMESPACE",
+        ),
+        Command(
+            description=f"ReSet log level of $CONTAINER to DEFAULT",
+            command="kubectl delete loglevel $NAME -n $NAMESPACE",
+        ),
+        Command(
+            description="List log levels to verify the reset",
+            command="kubectl get loglevel -n $NAMESPACE",
+        ),
+        Command(
+            description="f5ops plugin - List log levels to verify the change",
+            command="kubectl f5ops loglevel list -n $NAMESPACE",
+        ),
+        Command(
+            description="f5ops plugin - Get log levels to verify the change",
+            command="kubectl f5ops loglevel get $NAME -n $NAMESPACE",
+        ),
+        Command(
+            description=f"f5ops plugin - Set log level of $CONTAINER to $LEVEL",
+            command="kubectl f5ops loglevel set $NAME $CONTAINER $LEVEL -n $NAMESPACE",
+        ),
+        Command(
+            description="f5ops plugin - List log levels to verify the change",
+            command="kubectl f5ops loglevel list -n $NAMESPACE",
+        ),
+        Command(
+            description=f"f5ops plugin - ReSet log level of $CONTAINER to DEFAULT",
+            command="kubectl f5ops loglevel reset $NAME -n $NAMESPACE",
+        ),
+        Command(
+            description="f5ops plugin - List log levels to verify the reset",
+            command="kubectl f5ops loglevel list -n $NAMESPACE",
+        ),
+
         Command(
             description="create a qkview",
             command="kubectl f5ops qkview create",
