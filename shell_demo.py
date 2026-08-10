@@ -34,6 +34,8 @@ class Command:
     post: Optional[Callable[[str, dict[str, str]], Optional[str]]] = None
     # When True, Enter shows the rendered command but does not execute it.
     dontExecute: bool = False
+    # Group label used to bucket commands into scenarios (←/→ to switch).
+    scenario: str = ""
 
 
 def render(cmd: str, variables: dict[str, str]) -> str:
@@ -94,14 +96,15 @@ def _hline(stdscr, row: int, width: int, attr: int, left: str = "├", right: st
     _safe_addnstr(stdscr, row, 0, left + "─" * (width - 2) + right, width, attr)
 
 
-def _draw(stdscr, commands, variables, selected, output_lines, output_offset, status, status_attr, colors):
+def _draw(stdscr, commands, variables, selected, output_lines, output_offset, status, status_attr, colors, scenario_label=""):
     stdscr.erase()
     h, w = stdscr.getmaxyx()
     w = max(w, 20)
 
     # top border + title
     _safe_addnstr(stdscr, 0, 0, "╭" + "─" * (w - 2) + "╮", w, colors["border"])
-    title = " Shell demo — ↑/↓ navigate  ↵ run  PgUp/PgDn scroll  q quit "
+    scenario_part = f" ◀ {scenario_label} ▶ —" if scenario_label else ""
+    title = f" Shell demo{scenario_part} ↑↓ nav  ⭵ run  PgUp/PgDn scroll  q quit "
     _safe_addnstr(stdscr, 0, max(2, (w - len(title)) // 2), title, w - 4, colors["title"])
 
     # command panel
@@ -207,6 +210,9 @@ def interactive(stdscr, commands: list[Command], variables: dict[str, str]) -> N
     stdscr.keypad(True)
     colors = _init_colors()
 
+    # Preserve first-seen order of scenarios so navigation is predictable.
+    scenarios = list(dict.fromkeys(c.scenario for c in commands)) or [""]
+    scenario_idx = 0
     selected = 0
     output_lines: list[str] = []
     output_offset = 0  # lines scrolled up from the bottom; 0 pins to newest.
@@ -214,13 +220,29 @@ def interactive(stdscr, commands: list[Command], variables: dict[str, str]) -> N
     status_attr = colors["dim"]
 
     while True:
-        _draw(stdscr, commands, variables, selected, output_lines, output_offset, status, status_attr, colors)
+        current_scenario = scenarios[scenario_idx]
+        visible = [c for c in commands if c.scenario == current_scenario]
+        if not visible:
+            visible = commands
+        selected = min(selected, len(visible) - 1)
+        scenario_name = current_scenario or "(default)"
+        scenario_label = f"{scenario_idx + 1}/{len(scenarios)}: {scenario_name}"
+
+        _draw(stdscr, visible, variables, selected, output_lines, output_offset, status, status_attr, colors, scenario_label)
         key = stdscr.getch()
 
         if key in (curses.KEY_UP, ord("k")):
             selected = max(0, selected - 1)
         elif key in (curses.KEY_DOWN, ord("j")):
-            selected = min(len(commands) - 1, selected + 1)
+            selected = min(len(visible) - 1, selected + 1)
+        elif key in (curses.KEY_LEFT, ord("h")):
+            scenario_idx = (scenario_idx - 1) % len(scenarios)
+            selected = 0
+            output_offset = 0
+        elif key in (curses.KEY_RIGHT, ord("l")):
+            scenario_idx = (scenario_idx + 1) % len(scenarios)
+            selected = 0
+            output_offset = 0
         elif key == curses.KEY_PPAGE:
             output_offset = min(output_offset + 10, len(output_lines))
         elif key == curses.KEY_NPAGE:
@@ -230,7 +252,7 @@ def interactive(stdscr, commands: list[Command], variables: dict[str, str]) -> N
         elif key == curses.KEY_END:
             output_offset = 0
         elif key in (curses.KEY_ENTER, 10, 13):
-            item = commands[selected]
+            item = visible[selected]
             cmd = render(item.command, variables)
             output_offset = 0
             cmd_lines = cmd.splitlines() or [""]
@@ -242,7 +264,7 @@ def interactive(stdscr, commands: list[Command], variables: dict[str, str]) -> N
                 continue
             status = f"Running: {cmd}"
             status_attr = colors["title"]
-            _draw(stdscr, commands, variables, selected, output_lines, output_offset, status, status_attr, colors)
+            _draw(stdscr, visible, variables, selected, output_lines, output_offset, status, status_attr, colors, scenario_label)
             output, rc = run(cmd)
             output_lines = [f"$ {cmd_lines[0]}"] + [f"  {ln}" for ln in cmd_lines[1:]]
             output_lines += output.splitlines()
@@ -265,18 +287,22 @@ if __name__ == "__main__":
 
     commands = [
         Command(
+            scenario="Log Level",
             description="Log Level - List current log levels",
             command="kubectl get loglevel -n $NAMESPACE",
         ),
         Command(
+            scenario="Log Level",
             description="Log Level - Get a pod log levels",
             command="kubectl get loglevel $NAME -n $NAMESPACE",
         ),
         Command(
+            scenario="Log Level",
             description="Log Level - get log levels resource to show initial state",
             command="kubectl get loglevel $NAME -n $NAMESPACE -oyaml",
         ),
         Command(
+            scenario="Log Level",
             description=f"Log Level - Set log level of $CONTAINER to $LEVEL using replace",
             command='''kubectl replace -f - <<EOF
 apiVersion: ops.f5net.com/v1alpha1
@@ -291,135 +317,162 @@ spec:
 EOF''',
         ),
         Command(
+            scenario="Log Level",
             description="Log Level - get log levels resource after the change",
             command="kubectl get loglevel $NAME -n $NAMESPACE -oyaml",
         ),
         Command(
+            scenario="Log Level",
             description="Log Level - list log levels to verify the change",
             command="kubectl get loglevel -n $NAMESPACE",
         ),
         Command(
+            scenario="Log Level",
             description=f"Log Level - ReSet log level of $CONTAINER to DEFAULT",
             command="kubectl delete loglevel $NAME -n $NAMESPACE",
         ),
-       
         Command(
+            scenario="Log Level",
             description="Log Level - List log levels to verify the reset",
             command="kubectl get loglevel -n $NAMESPACE",
         ),
+
         Command(
+            scenario="f5ops plugin",
             description="f5ops plugin - List log levels to verify the change",
             command="kubectl f5ops loglevel list -n $NAMESPACE",
         ),
         Command(
+            scenario="f5ops plugin",
             description="f5ops plugin - Get log levels to verify the change",
             command="kubectl f5ops loglevel get $NAME -n $NAMESPACE",
         ),
         Command(
+            scenario="f5ops plugin",
             description=f"f5ops plugin - Set log level of $CONTAINER to $LEVEL",
             command="kubectl f5ops loglevel set $NAME $CONTAINER $LEVEL -n $NAMESPACE",
         ),
         Command(
+            scenario="f5ops plugin",
             description="f5ops plugin - List log levels to verify the change",
             command="kubectl f5ops loglevel list -n $NAMESPACE",
         ),
         Command(
+            scenario="f5ops plugin",
             description=f"f5ops plugin - ReSet log level of $CONTAINER to DEFAULT",
             command="kubectl f5ops loglevel reset $NAME -n $NAMESPACE",
         ),
         Command(
+            scenario="f5ops plugin",
             description="f5ops plugin - List log levels to verify the reset",
             command="kubectl f5ops loglevel list -n $NAMESPACE",
         ),
 
         Command(
+            scenario="EDIT",
             description=f"EDIT - Set log level of $CONTAINER to NOTICE",
             command="kubectl f5ops loglevel set $NAME $CONTAINER NOTICE -n $NAMESPACE",
         ),
         Command(
+            scenario="EDIT",
             description="EDIT - List log levels to verify the reset",
             command="kubectl f5ops loglevel list -n $NAMESPACE",
         ),
         Command(
+            scenario="EDIT",
             description=f"EDIT - Set log level of $CONTAINER2 to NOTICE",
             command="kubectl f5ops loglevel set $NAME $CONTAINER2 ERROR -n $NAMESPACE",
         ),
         Command(
+            scenario="EDIT",
             description="EDIT - List log levels to verify the reset",
             command="kubectl f5ops loglevel list -n $NAMESPACE",
         ),
         Command(
+            scenario="EDIT",
             description=f"EDIT - Edit log level resource directly",
             command="kubectl edit loglevel $NAME -n $NAMESPACE",
             dontExecute=True,
         ),
         Command(
+            scenario="EDIT",
             description="EDIT - List log levels to verify the reset",
             command="kubectl f5ops loglevel list -n $NAMESPACE",
         ),
         Command(
+            scenario="EDIT",
             description=f"EDIT - Edit log level resource directly using f5ops plugin",
             command="kubectl f5ops loglevel edit $NAME -n $NAMESPACE",
             dontExecute=True,
         ),
         Command(
+            scenario="EDIT",
             description="EDIT - List log levels to verify the reset",
             command="kubectl f5ops loglevel list -n $NAMESPACE",
         ),
         Command(
+            scenario="EDIT",
             description=f"EDIT - ReSet log level of $CONTAINER to DEFAULT",
             command="kubectl f5ops loglevel reset $NAME -n $NAMESPACE",
         ),
         # Nostdout Demo
 
         # $ kubectl logs -f f5-toda-kal-6696d6b448-j8k9w -c f5-toda-kal -n kal-ns
-        # kubectl f5ops loglevel get kal -n kal-ns -oyaml    
+        # kubectl f5ops loglevel get kal -n kal-ns -oyaml
         Command(
+            scenario="NoStdout",
             description=f"NoStdout - watch the log level resource",
             command="watch -d -n 0.5 kubectl f5ops loglevel get $NAME -n $NAMESPACE -oyaml",
             dontExecute=True,
         ),
         Command(
+            scenario="NoStdout",
             description=f"NoStdout - Set log level of $CONTAINER to DEBUG",
             command="kubectl f5ops loglevel set $NAME $CONTAINER DEBUG -n $NAMESPACE",
         ),
         # TODO: this is not working as expected, need to check the command and the resource
         Command(
+            scenario="NoStdout",
             description=f"NoStdout - Set NoStdout for resource",
             command="kubectl patch loglevel $NAME -n $NAMESPACE --type=merge -p '{\"spec\":{\"containers\":{\"$CONTAINER\":{\"nostdout\":\"ENABLED\"}}}}'",
         ),
         # Command(
+        #     scenario="NoStdout",
         #     description=f"NoStdout - Set NoStdout for resource",
         #     command="kubectl patch loglevel $NAME -n $NAMESPACE --type=merge -p '{\"spec\":{\"containers\":{\"$CONTAINER\":{\"nostdout\":\"DISABLED\"}}}}'",
         # ),
         # Command(
+        #     scenario="NoStdout",
         #     description="NoStdout - get log levels resource to verify the change",
         #     command="kubectl f5ops loglevel get $NAME -n $NAMESPACE -oyaml",
         # ),
 
         # TODO: this is not working as expected, need to check the command and the resource
         Command(
+            scenario="NoStdout",
             description=f"NoStdout - Set NoStdout for resource",
             command="kubectl f5ops loglevel patch $NAME -n $NAMESPACE --type=json -p '[{\"op\":\"replace\",\"path\":\"/spec/containers/$CONTAINER/nostdout\",\"value\":\"DISABLED\"}]'",
         ),
-
         Command(
+            scenario="NoStdout",
             description=f"NoStdout - ReSet log level of $CONTAINER to DEFAULT",
             command="kubectl f5ops loglevel reset $NAME -n $NAMESPACE",
         ),
 
         # Qkview Demo
         Command(
+            scenario="Qkview",
             description="Qkview - List qkview with watch",
             command="kubectl get qkviews -w",
             dontExecute=True,
         ),
-       
         Command(
+            scenario="Qkview",
             description="Qkview - List qkview",
             command="kubectl get qkviews",
         ),
         Command(
+            scenario="Qkview",
             description="Qkview - Create a qkview",
             command='''kubectl create -f - <<'EOF'
 apiVersion: ops.f5net.com/v1alpha1
@@ -436,10 +489,12 @@ EOF''',
         ),
 
         Command(
+            scenario="Qkview with f5ops plugin",
             description="Qkview with f5ops plugin - List qkview",
             command="kubectl f5ops qkview list",
         ),
         Command(
+            scenario="Qkview with f5ops plugin",
             description="Qkview with f5ops plugin - Create a qkview",
             command="kubectl f5ops qkview create",
             post=lambda out, v: (
@@ -449,18 +504,22 @@ EOF''',
             ),
         ),
         Command(
+            scenario="Qkview with f5ops plugin",
             description="Qkview with f5ops plugin - Get qkview",
             command="kubectl f5ops qkview get $QKVIEW_ID",
         ),
         Command(
+            scenario="Qkview with f5ops plugin",
             description="Qkview with f5ops plugin - Get qkview status",
             command="kubectl f5ops qkview status $QKVIEW_ID",
         ),
-         Command(
+        Command(
+            scenario="Qkview with f5ops plugin",
             description="Qkview with f5ops plugin - Get qkview",
             command="kubectl f5ops qkview get b3a709ea-647b-49ab-83dc-761efeab37a9",
         ),
-         Command(
+        Command(
+            scenario="Qkview with f5ops plugin",
             description="Qkview with f5ops plugin - Status qkview",
             command="kubectl f5ops qkview status b3a709ea-647b-49ab-83dc-761efeab37a9",
         ),
