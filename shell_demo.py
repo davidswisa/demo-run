@@ -497,7 +497,7 @@ EOF''',
         Command(
             scenario="Qkview",
             title="Create a qkview",
-            # metion the previusly there was a REST to CWC with token which was less user friendly
+            # metion the previously there was a REST to CWC with token which was less user friendly
             command='''kubectl create -f - <<'EOF'
 apiVersion: ops.f5net.com/v1alpha1
 kind: Qkview
@@ -540,7 +540,7 @@ including all subtasks progress and any errors encountered during the collection
         ),
         Command(
             scenario="Qkview",
-            title="Create a qkview",
+            title="Create a qkview for cancel flow",
             command='''kubectl create -f - <<'EOF'
 apiVersion: ops.f5net.com/v1alpha1
 kind: Qkview
@@ -562,7 +562,9 @@ EOF''',
         Command(
             scenario="Qkview",
             title="Cancel qkview",
-            command="kubectl get qkviews --subresource=cancel $QKVIEW_ID -oyaml",
+            command='''kubectl create --raw "/apis/ops.f5net.com/v1alpha1/qkviews/$QKVIEW_ID/cancel" -f - <<'EOF'     
+{}
+EOF''',
         ),
 
         Command(
@@ -586,7 +588,7 @@ spec:
   podPatterns:
     - "tmm-*"
 EOF''',
-            command="kubectl f5ops qkview create --filename my-qkview2",
+            command="kubectl f5ops qkview create --filename my-qkview-f5ops",
             post=lambda out, v: (
                 v.update(QKVIEW_ID=m.group(0)) or f"QKVIEW_ID = {m.group(0)}"
                 if (m := re.search(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", out))
@@ -624,7 +626,7 @@ kubectl get --raw "/apis/ops.f5net.com/v1alpha1/qkviews/$QKVIEW_ID/download"''',
         Command(
             scenario="Qkview with f5ops plugin",
             title="List qkview with filename filter",
-            command="kubectl f5ops qkview list --filename=my-qkview2",
+            command="kubectl f5ops qkview list --filename=my-qkview-f5ops",
         ),
 
         Command(
@@ -640,6 +642,10 @@ kubectl get --raw "/apis/ops.f5net.com/v1alpha1/qkviews/$QKVIEW_ID/download"''',
         Command(
             scenario="Qkview with f5ops plugin",
             title="Cancel qkview",
+            note='''The f5ops plugin simplifies the cancellation of a qkview resource by providing a more user-friendly command.
+kubectl create --raw "/apis/ops.f5net.com/v1alpha1/qkviews/$QKVIEW_ID/cancel" -f - <<'EOF'     
+{}
+EOF''',
             command="kubectl f5ops qkview cancel $QKVIEW_ID",
         ),
         Command(
