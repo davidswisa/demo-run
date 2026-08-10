@@ -322,7 +322,7 @@ if __name__ == "__main__":
         ),
         Command(
             scenario="Log Level",
-            title="get log levels resource to show initial state",
+            title="Get log levels resource to show initial state",
             command="kubectl get loglevel $NAME -n $NAMESPACE -oyaml",
         ),
         Command(
@@ -342,12 +342,12 @@ EOF''',
         ),
         Command(
             scenario="Log Level",
-            title="get log levels resource after the change",
+            title="Get log levels resource after the change",
             command="kubectl get loglevel $NAME -n $NAMESPACE -oyaml",
         ),
         Command(
             scenario="Log Level",
-            title="list log levels to verify the change",
+            title="List log levels to verify the change",
             command="kubectl get loglevel -n $NAMESPACE",
         ),
         Command(
