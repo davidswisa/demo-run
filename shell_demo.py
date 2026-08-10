@@ -270,6 +270,11 @@ def interactive(stdscr, commands: list[Command], variables: dict[str, str]) -> N
             output_offset = len(output_lines)
         elif key == curses.KEY_END:
             output_offset = 0
+        elif key == ord("c"):
+            output_lines = []
+            output_offset = 0
+            status = "Output cleared."
+            status_attr = colors["dim"]
         elif key in (curses.KEY_ENTER, 10, 13):
             item = visible[selected]
             cmd = render(item.command, variables)
@@ -307,23 +312,23 @@ if __name__ == "__main__":
     commands = [
         Command(
             scenario="Log Level",
-            title="Log Level - List current log levels",
+            title="List current log levels",
             note="This command lists the current log levels for all pods in the specified namespace.",
             command="kubectl get loglevel -n $NAMESPACE",
         ),
         Command(
             scenario="Log Level",
-            title="Log Level - Get a pod log levels",
+            title="Get a pod log levels",
             command="kubectl get loglevel $NAME -n $NAMESPACE",
         ),
         Command(
             scenario="Log Level",
-            title="Log Level - get log levels resource to show initial state",
+            title="get log levels resource to show initial state",
             command="kubectl get loglevel $NAME -n $NAMESPACE -oyaml",
         ),
         Command(
             scenario="Log Level",
-            title=f"Log Level - Set log level of $CONTAINER to $LEVEL using replace",
+            title=f"Set log level of $CONTAINER to $LEVEL using replace",
             command='''kubectl replace -f - <<EOF
 apiVersion: ops.f5net.com/v1alpha1
 kind: LogLevel
@@ -338,101 +343,101 @@ EOF''',
         ),
         Command(
             scenario="Log Level",
-            title="Log Level - get log levels resource after the change",
+            title="get log levels resource after the change",
             command="kubectl get loglevel $NAME -n $NAMESPACE -oyaml",
         ),
         Command(
             scenario="Log Level",
-            title="Log Level - list log levels to verify the change",
+            title="list log levels to verify the change",
             command="kubectl get loglevel -n $NAMESPACE",
         ),
         Command(
             scenario="Log Level",
-            title=f"Log Level - ReSet log level of $CONTAINER to DEFAULT",
+            title=f"ReSet log level of $CONTAINER to DEFAULT",
             command="kubectl delete loglevel $NAME -n $NAMESPACE",
         ),
         Command(
             scenario="Log Level",
-            title="Log Level - List log levels to verify the reset",
+            title="List log levels to verify the reset",
             command="kubectl get loglevel -n $NAMESPACE",
         ),
 
         Command(
             scenario="f5ops plugin",
-            title="f5ops plugin - List log levels to verify the change",
+            title="List log levels to verify the change",
             command="kubectl f5ops loglevel list -n $NAMESPACE",
         ),
         Command(
             scenario="f5ops plugin",
-            title="f5ops plugin - Get log levels to verify the change",
+            title="Get log levels to verify the change",
             command="kubectl f5ops loglevel get $NAME -n $NAMESPACE",
         ),
         Command(
             scenario="f5ops plugin",
-            title=f"f5ops plugin - Set log level of $CONTAINER to $LEVEL",
+            title=f"Set log level of $CONTAINER to $LEVEL",
             command="kubectl f5ops loglevel set $NAME $CONTAINER $LEVEL -n $NAMESPACE",
         ),
         Command(
             scenario="f5ops plugin",
-            title="f5ops plugin - List log levels to verify the change",
+            title="List log levels to verify the change",
             command="kubectl f5ops loglevel list -n $NAMESPACE",
         ),
         Command(
             scenario="f5ops plugin",
-            title=f"f5ops plugin - ReSet log level of $CONTAINER to DEFAULT",
+            title=f"ReSet log level of $CONTAINER to DEFAULT",
             command="kubectl f5ops loglevel reset $NAME -n $NAMESPACE",
         ),
         Command(
             scenario="f5ops plugin",
-            title="f5ops plugin - List log levels to verify the reset",
+            title="List log levels to verify the reset",
             command="kubectl f5ops loglevel list -n $NAMESPACE",
         ),
 
         Command(
             scenario="EDIT",
-            title=f"EDIT - Set log level of $CONTAINER to NOTICE",
+            title=f"Set log level of $CONTAINER to NOTICE",
             command="kubectl f5ops loglevel set $NAME $CONTAINER NOTICE -n $NAMESPACE",
         ),
         Command(
             scenario="EDIT",
-            title="EDIT - List log levels to verify the reset",
+            title="List log levels to verify the reset",
             command="kubectl f5ops loglevel list -n $NAMESPACE",
         ),
         Command(
             scenario="EDIT",
-            title=f"EDIT - Set log level of $CONTAINER2 to NOTICE",
+            title=f"Set log level of $CONTAINER2 to NOTICE",
             command="kubectl f5ops loglevel set $NAME $CONTAINER2 ERROR -n $NAMESPACE",
         ),
         Command(
             scenario="EDIT",
-            title="EDIT - List log levels to verify the reset",
+            title="List log levels to verify the reset",
             command="kubectl f5ops loglevel list -n $NAMESPACE",
         ),
         Command(
             scenario="EDIT",
-            title=f"EDIT - Edit log level resource directly",
+            title=f"Edit log level resource directly",
             command="kubectl edit loglevel $NAME -n $NAMESPACE",
             dontExecute=True,
         ),
         Command(
             scenario="EDIT",
-            title="EDIT - List log levels to verify the reset",
+            title="List log levels to verify the reset",
             command="kubectl f5ops loglevel list -n $NAMESPACE",
         ),
         Command(
             scenario="EDIT",
-            title=f"EDIT - Edit log level resource directly using f5ops plugin",
+            title=f"Edit log level resource directly using f5ops plugin",
             command="kubectl f5ops loglevel edit $NAME -n $NAMESPACE",
             dontExecute=True,
         ),
         Command(
             scenario="EDIT",
-            title="EDIT - List log levels to verify the reset",
+            title="List log levels to verify the reset",
             command="kubectl f5ops loglevel list -n $NAMESPACE",
         ),
         Command(
             scenario="EDIT",
-            title=f"EDIT - ReSet log level of $CONTAINER to DEFAULT",
+            title=f"ReSet log level of $CONTAINER to DEFAULT",
             command="kubectl f5ops loglevel reset $NAME -n $NAMESPACE",
         ),
         # Nostdout Demo
@@ -441,59 +446,59 @@ EOF''',
         # kubectl f5ops loglevel get kal -n kal-ns -oyaml
         Command(
             scenario="NoStdout",
-            title=f"NoStdout - watch the log level resource",
+            title=f"watch the log level resource",
             command="watch -d -n 0.5 kubectl f5ops loglevel get $NAME -n $NAMESPACE -oyaml",
             dontExecute=True,
         ),
         Command(
             scenario="NoStdout",
-            title=f"NoStdout - Set log level of $CONTAINER to DEBUG",
+            title=f"Set log level of $CONTAINER to DEBUG",
             command="kubectl f5ops loglevel set $NAME $CONTAINER DEBUG -n $NAMESPACE",
         ),
         # TODO: this is not working as expected, need to check the command and the resource
         Command(
             scenario="NoStdout",
-            title=f"NoStdout - Set NoStdout for resource",
+            title=f"Set NoStdout for resource",
             command="kubectl patch loglevel $NAME -n $NAMESPACE --type=merge -p '{\"spec\":{\"containers\":{\"$CONTAINER\":{\"nostdout\":\"ENABLED\"}}}}'",
         ),
         # Command(
         #     scenario="NoStdout",
-        #     title=f"NoStdout - Set NoStdout for resource",
+        #     title=f"Set NoStdout for resource",
         #     command="kubectl patch loglevel $NAME -n $NAMESPACE --type=merge -p '{\"spec\":{\"containers\":{\"$CONTAINER\":{\"nostdout\":\"DISABLED\"}}}}'",
         # ),
         # Command(
         #     scenario="NoStdout",
-        #     title="NoStdout - get log levels resource to verify the change",
+        #     title="get log levels resource to verify the change",
         #     command="kubectl f5ops loglevel get $NAME -n $NAMESPACE -oyaml",
         # ),
 
         # TODO: this is not working as expected, need to check the command and the resource
         Command(
             scenario="NoStdout",
-            title=f"NoStdout - Set NoStdout for resource",
+            title=f"Set NoStdout for resource",
             command="kubectl f5ops loglevel patch $NAME -n $NAMESPACE --type=json -p '[{\"op\":\"replace\",\"path\":\"/spec/containers/$CONTAINER/nostdout\",\"value\":\"DISABLED\"}]'",
         ),
         Command(
             scenario="NoStdout",
-            title=f"NoStdout - ReSet log level of $CONTAINER to DEFAULT",
+            title=f"ReSet log level of $CONTAINER to DEFAULT",
             command="kubectl f5ops loglevel reset $NAME -n $NAMESPACE",
         ),
 
         # Qkview Demo
         Command(
             scenario="Qkview",
-            title="Qkview - List qkview with watch",
+            title="List qkview with watch",
             command="kubectl get qkviews -w",
             dontExecute=True,
         ),
         Command(
             scenario="Qkview",
-            title="Qkview - List qkview",
+            title="List qkview",
             command="kubectl get qkviews",
         ),
         Command(
             scenario="Qkview",
-            title="Qkview - Create a qkview",
+            title="Create a qkview",
             command='''kubectl create -f - <<'EOF'
 apiVersion: ops.f5net.com/v1alpha1
 kind: Qkview
@@ -510,12 +515,12 @@ EOF''',
 
         Command(
             scenario="Qkview with f5ops plugin",
-            title="Qkview with f5ops plugin - List qkview",
+            title="List qkview",
             command="kubectl f5ops qkview list",
         ),
         Command(
             scenario="Qkview with f5ops plugin",
-            title="Qkview with f5ops plugin - Create a qkview",
+            title="Create a qkview",
             command="kubectl f5ops qkview create",
             post=lambda out, v: (
                 v.update(QKVIEW_ID=m.group(0)) or f"QKVIEW_ID = {m.group(0)}"
@@ -525,22 +530,22 @@ EOF''',
         ),
         Command(
             scenario="Qkview with f5ops plugin",
-            title="Qkview with f5ops plugin - Get qkview",
+            title="Get qkview",
             command="kubectl f5ops qkview get $QKVIEW_ID",
         ),
         Command(
             scenario="Qkview with f5ops plugin",
-            title="Qkview with f5ops plugin - Get qkview status",
+            title="Get qkview status",
             command="kubectl f5ops qkview status $QKVIEW_ID",
         ),
         Command(
             scenario="Qkview with f5ops plugin",
-            title="Qkview with f5ops plugin - Get qkview",
+            title="Get qkview",
             command="kubectl f5ops qkview get b3a709ea-647b-49ab-83dc-761efeab37a9",
         ),
         Command(
             scenario="Qkview with f5ops plugin",
-            title="Qkview with f5ops plugin - Status qkview",
+            title="Status qkview",
             command="kubectl f5ops qkview status b3a709ea-647b-49ab-83dc-761efeab37a9",
         ),
 
