@@ -106,7 +106,7 @@ def _draw(stdscr, commands, variables, selected, output_lines, output_offset, st
     # top border + title
     _safe_addnstr(stdscr, 0, 0, "╭" + "─" * (w - 2) + "╮", w, colors["border"])
     scenario_part = f" ◀ {scenario_label} ▶ —" if scenario_label else ""
-    title = f" Shell demo{scenario_part} ↑↓ nav  ⭵ run  PgUp/PgDn scroll  q quit "
+    title = f" Shell demo{scenario_part} ↑↓ nav  ←→ scenario  ⭵ run  c clear  PgUp/PgDn scroll  q quit "
     _safe_addnstr(stdscr, 0, max(2, (w - len(title)) // 2), title, w - 4, colors["title"])
 
     # command panel
@@ -119,7 +119,7 @@ def _draw(stdscr, commands, variables, selected, output_lines, output_offset, st
 
     _safe_addnstr(stdscr, 2, 0, "│", 1, colors["border"])
     _safe_addnstr(stdscr, 2, w - 1, "│", 1, colors["border"])
-    _safe_addnstr(stdscr, 2, 4, item.title[: w - 6], w - 6, colors["desc"])
+    _safe_addnstr(stdscr, 2, 4, render(item.title, variables)[: w - 6], w - 6, colors["desc"])
 
     _hline(stdscr, 3, w, colors["border"])
 
@@ -129,7 +129,7 @@ def _draw(stdscr, commands, variables, selected, output_lines, output_offset, st
         _safe_addnstr(stdscr, row, w - 1, "│", 1, colors["border"])
         _safe_addnstr(stdscr, row, 2, "NOTE", w - 4, colors["label"])
         row += 1
-        for line in item.note.splitlines() or [""]:
+        for line in render(item.note, variables).splitlines() or [""]:
             _safe_addnstr(stdscr, row, 0, "│", 1, colors["border"])
             _safe_addnstr(stdscr, row, w - 1, "│", 1, colors["border"])
             _safe_addnstr(stdscr, row, 4, line[: w - 6], w - 6, colors["info"])
@@ -286,7 +286,7 @@ def interactive(stdscr, commands: list[Command], variables: dict[str, str]) -> N
                 status = "Skipped (dontExecute)"
                 status_attr = colors["dim"]
                 continue
-            status = f"Running: {cmd}"
+            status = f"Running: {cmd.splitlines()[0]}"
             status_attr = colors["title"]
             _draw(stdscr, visible, variables, selected, output_lines, output_offset, status, status_attr, colors, scenario_label)
             output, rc = run(cmd)
@@ -313,7 +313,6 @@ if __name__ == "__main__":
         Command(
             scenario="Log Level",
             title="List current log levels",
-            note="This command lists the current log levels for all pods in the specified namespace.",
             command="kubectl get loglevel -n $NAMESPACE",
         ),
         Command(
@@ -375,6 +374,18 @@ EOF''',
         Command(
             scenario="f5ops plugin",
             title=f"Set log level of $CONTAINER to $LEVEL",
+            note='''This command simplifies the pure kuberneties command:
+kubectl replace -f - <<EOF
+apiVersion: ops.f5net.com/v1alpha1
+kind: LogLevel
+metadata:
+  name: $NAME
+  namespace: $NAMESPACE
+spec:
+  containers:
+    $CONTAINER:
+      level: $LEVEL
+EOF''',
             command="kubectl f5ops loglevel set $NAME $CONTAINER $LEVEL -n $NAMESPACE",
         ),
         Command(
@@ -442,11 +453,10 @@ EOF''',
         ),
         # Nostdout Demo
 
-        # $ kubectl logs -f f5-toda-kal-6696d6b448-j8k9w -c f5-toda-kal -n kal-ns
-        # kubectl f5ops loglevel get kal -n kal-ns -oyaml
         Command(
             scenario="NoStdout",
-            title=f"watch the log level resource",
+            title="Monitor log level resource on changes",
+            note='''At the request of BNPP, the nostdout field was introduced to suppress log outputs to the standard output stream.''',
             command="watch -d -n 0.5 kubectl f5ops loglevel get $NAME -n $NAMESPACE -oyaml",
             dontExecute=True,
         ),
@@ -455,24 +465,12 @@ EOF''',
             title=f"Set log level of $CONTAINER to DEBUG",
             command="kubectl f5ops loglevel set $NAME $CONTAINER DEBUG -n $NAMESPACE",
         ),
-        # TODO: this is not working as expected, need to check the command and the resource
         Command(
             scenario="NoStdout",
             title=f"Set NoStdout for resource",
             command="kubectl patch loglevel $NAME -n $NAMESPACE --type=merge -p '{\"spec\":{\"containers\":{\"$CONTAINER\":{\"nostdout\":\"ENABLED\"}}}}'",
         ),
-        # Command(
-        #     scenario="NoStdout",
-        #     title=f"Set NoStdout for resource",
-        #     command="kubectl patch loglevel $NAME -n $NAMESPACE --type=merge -p '{\"spec\":{\"containers\":{\"$CONTAINER\":{\"nostdout\":\"DISABLED\"}}}}'",
-        # ),
-        # Command(
-        #     scenario="NoStdout",
-        #     title="get log levels resource to verify the change",
-        #     command="kubectl f5ops loglevel get $NAME -n $NAMESPACE -oyaml",
-        # ),
 
-        # TODO: this is not working as expected, need to check the command and the resource
         Command(
             scenario="NoStdout",
             title=f"Set NoStdout for resource",
@@ -499,6 +497,7 @@ EOF''',
         Command(
             scenario="Qkview",
             title="Create a qkview",
+            # metion the previusly there was a REST to CWC with token which was less user friendly
             command='''kubectl create -f - <<'EOF'
 apiVersion: ops.f5net.com/v1alpha1
 kind: Qkview
@@ -511,6 +510,59 @@ spec:
   podPatterns:
     - "tmm-*"
 EOF''',
+            post=lambda out, v: (
+                v.update(QKVIEW_ID=m.group(0)) or f"QKVIEW_ID = {m.group(0)}"
+                if (m := re.search(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", out))
+                else "<no qkview id found in output>"
+            ),
+        ),
+        Command(
+            scenario="Qkview",
+            title="Get the created qkview",
+            command="kubectl get qkviews $QKVIEW_ID",
+        ),
+        Command(
+            scenario="Qkview",
+            title="Get qkview content in yaml format",
+            command="kubectl get qkviews $QKVIEW_ID -oyaml",
+        ),
+        Command(
+            scenario="Qkview",
+            title="Get qkview status in yaml format",
+            note='''The status subresource provides information about the current state of the qkview resource, 
+including all subtasks progress and any errors encountered during the collection process.''',
+            command="kubectl get qkviews --subresource=status $QKVIEW_ID -oyaml",
+        ),
+        Command(
+            scenario="Qkview",
+            title="List qkview with filename filter",
+            command="kubectl get qkviews --field-selector=filename=my-qkview",
+        ),
+        Command(
+            scenario="Qkview",
+            title="Create a qkview",
+            command='''kubectl create -f - <<'EOF'
+apiVersion: ops.f5net.com/v1alpha1
+kind: Qkview
+metadata:
+  generateName: qkview-
+spec:
+  filename: my-qkview-cancel-flow
+  description: "Ad-hoc diagnostic collection"
+  timeout: "120s"
+  podPatterns:
+    - "tmm-*"
+EOF''',
+            post=lambda out, v: (
+                v.update(QKVIEW_ID=m.group(0)) or f"QKVIEW_ID = {m.group(0)}"
+                if (m := re.search(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", out))
+                else "<no qkview id found in output>"
+            ),
+        ),
+        Command(
+            scenario="Qkview",
+            title="Cancel qkview",
+            command="kubectl get qkviews --subresource=cancel $QKVIEW_ID -oyaml",
         ),
 
         Command(
@@ -521,7 +573,20 @@ EOF''',
         Command(
             scenario="Qkview with f5ops plugin",
             title="Create a qkview",
-            command="kubectl f5ops qkview create",
+            note='''The f5ops plugin simplifies the creation of a qkview resource by providing a more user-friendly command.
+kubectl create -f - <<'EOF'
+apiVersion: ops.f5net.com/v1alpha1
+kind: Qkview
+metadata:
+  generateName: qkview-
+spec:
+  filename: my-qkview
+  description: "Ad-hoc diagnostic collection"
+  timeout: "120s"
+  podPatterns:
+    - "tmm-*"
+EOF''',
+            command="kubectl f5ops qkview create --filename my-qkview2",
             post=lambda out, v: (
                 v.update(QKVIEW_ID=m.group(0)) or f"QKVIEW_ID = {m.group(0)}"
                 if (m := re.search(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", out))
@@ -530,7 +595,7 @@ EOF''',
         ),
         Command(
             scenario="Qkview with f5ops plugin",
-            title="Get qkview",
+            title="Get qkview content",
             command="kubectl f5ops qkview get $QKVIEW_ID",
         ),
         Command(
@@ -538,27 +603,55 @@ EOF''',
             title="Get qkview status",
             command="kubectl f5ops qkview status $QKVIEW_ID",
         ),
+
         Command(
             scenario="Qkview with f5ops plugin",
-            title="Get qkview",
-            command="kubectl f5ops qkview get b3a709ea-647b-49ab-83dc-761efeab37a9",
+            note='''The f5ops plugin simplifies the download of a qkview file by providing a more user-friendly command.
+kubectl get --raw "/apis/ops.f5net.com/v1alpha1/qkviews/$QKVIEW_ID/download"''',
+            title="Get download qkview",
+            command="kubectl f5ops qkview download $QKVIEW_ID",
+            post=lambda out, v: (
+                v.update(QKVIEW_FILE=m.group(1)) or f"QKVIEW_FILE = {m.group(1)}"
+                if (m := re.search(r"File path:\s*(\S+)", out))
+                else "<no file path found in output>"
+            ),
         ),
         Command(
             scenario="Qkview with f5ops plugin",
-            title="Status qkview",
-            command="kubectl f5ops qkview status b3a709ea-647b-49ab-83dc-761efeab37a9",
+            title="View Qkview file in file system",
+            command="ls -l $QKVIEW_FILE",
+        ),
+        Command(
+            scenario="Qkview with f5ops plugin",
+            title="List qkview with filename filter",
+            command="kubectl f5ops qkview list --filename=my-qkview2",
         ),
 
-        # list with filter:
-        # $ kubectl f5ops qkview list --filename=file1
-
-        # $ kubectl get qkview --field-selector=filename=my-qkview2
-
-        # cancel:
-        # kubectl f5ops qkview cancel b3a709ea-647b-49ab-83dc-761efeab37a9
-
-        # download:
-        # $ "${CURL[@]}" -o qkview.tar.gz "$BASE/v1/qkview/0660666c-f423-47af-8a17-d34fa43aa083/download" -H "Authorization: Bearer $CWCCTL_TOKEN"
+        Command(
+            scenario="Qkview with f5ops plugin",
+            title="Create a qkview for cancel",
+            command="kubectl f5ops qkview create --filename my-qkview-for-cancel",
+            post=lambda out, v: (
+                v.update(QKVIEW_ID=m.group(0)) or f"QKVIEW_ID = {m.group(0)}"
+                if (m := re.search(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", out))
+                else "<no qkview id found in output>"
+            ),
+        ),
+        Command(
+            scenario="Qkview with f5ops plugin",
+            title="Cancel qkview",
+            command="kubectl f5ops qkview cancel $QKVIEW_ID",
+        ),
+        Command(
+            scenario="Qkview with f5ops plugin",
+            title="List qkviews",
+            command="kubectl f5ops qkview list",
+        ),
+        Command(
+            scenario="Qkview with f5ops plugin",
+            title="Get qkview create help",
+            command="kubectl f5ops qkview create --help",
+        ),
     ]
 
     curses.wrapper(interactive, commands, variables)
