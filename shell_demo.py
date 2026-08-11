@@ -309,6 +309,44 @@ if __name__ == "__main__":
     variables = load_env(Path(__file__).with_name(".env"))
     # Log Level Demo
 
+    LOGLEVEL_APPLY_YAML = '''kubectl apply -f - <<EOF
+apiVersion: ops.f5net.com/v1alpha1
+kind: LogLevel
+metadata: 
+  name: $NAME
+  namespace: $NAMESPACE
+spec:
+  containers:
+    - name: $CONTAINER
+      level: $LEVEL
+EOF'''
+
+    QKVIEW_CANCEL_FLOW_CREATE_YAML = '''kubectl create -f - <<'EOF'
+apiVersion: ops.f5net.com/v1alpha1
+kind: Qkview
+metadata:
+  generateName: qkview-
+spec:
+  filename: my-qkview-cancel-flow
+  description: "Ad-hoc diagnostic collection"
+  timeout: "120s"
+  podPatterns:
+    - "tmm-*"
+EOF'''
+
+    QKVIEW_FLOW_CREATE_YAML = '''kubectl create -f - <<'EOF'
+apiVersion: ops.f5net.com/v1alpha1
+kind: Qkview
+metadata:
+  generateName: qkview-
+spec:
+  filename: my-qkview
+  description: "Ad-hoc diagnostic collection"
+  timeout: "120s"
+  podPatterns:
+    - "tmm-*"
+EOF'''
+
     commands = [
         Command(
             scenario="Log Level",
@@ -328,17 +366,7 @@ if __name__ == "__main__":
         Command(
             scenario="Log Level",
             title=f"Set log level of $CONTAINER to $LEVEL using replace",
-            command='''kubectl replace -f - <<EOF
-apiVersion: ops.f5net.com/v1alpha1
-kind: LogLevel
-metadata:
-  name: $NAME
-  namespace: $NAMESPACE
-spec:
-  containers:
-    $CONTAINER:
-      level: $LEVEL
-EOF''',
+            command=LOGLEVEL_APPLY_YAML,
         ),
         Command(
             scenario="Log Level",
@@ -374,18 +402,7 @@ EOF''',
         Command(
             scenario="f5ops plugin",
             title=f"Set log level of $CONTAINER to $LEVEL",
-            note='''This command simplifies the pure kuberneties command:
-kubectl replace -f - <<EOF
-apiVersion: ops.f5net.com/v1alpha1
-kind: LogLevel
-metadata:
-  name: $NAME
-  namespace: $NAMESPACE
-spec:
-  containers:
-    $CONTAINER:
-      level: $LEVEL
-EOF''',
+            note='''This command simplifies the pure kuberneties command:\n''' + LOGLEVEL_APPLY_YAML,
             command="kubectl f5ops loglevel set $NAME $CONTAINER $LEVEL -n $NAMESPACE",
         ),
         Command(
@@ -403,7 +420,6 @@ EOF''',
             title="List log levels to verify the reset",
             command="kubectl f5ops loglevel list -n $NAMESPACE",
         ),
-
         Command(
             scenario="EDIT",
             title=f"Set log level of $CONTAINER to NOTICE",
@@ -468,13 +484,13 @@ EOF''',
         Command(
             scenario="NoStdout",
             title=f"Set NoStdout for resource",
-            command="kubectl patch loglevel $NAME -n $NAMESPACE --type=merge -p '{\"spec\":{\"containers\":{\"$CONTAINER\":{\"nostdout\":\"ENABLED\"}}}}'",
+            command="kubectl patch loglevel $NAME -n $NAMESPACE -p '{\"spec\":{\"containers\":[{\"name\":\"$CONTAINER\",\"nostdout\":\"ENABLED\"}]}}'",
         ),
 
         Command(
             scenario="NoStdout",
             title=f"Set NoStdout for resource",
-            command="kubectl f5ops loglevel patch $NAME -n $NAMESPACE --type=json -p '[{\"op\":\"replace\",\"path\":\"/spec/containers/$CONTAINER/nostdout\",\"value\":\"DISABLED\"}]'",
+            command="kubectl f5ops loglevel patch $NAME -n $NAMESPACE -p '{\"spec\":{\"containers\":[{\"name\":\"$CONTAINER\",\"nostdout\":\"DISABLED\"}]}}'",
         ),
         Command(
             scenario="NoStdout",
@@ -498,18 +514,7 @@ EOF''',
             scenario="Qkview",
             title="Create a qkview",
             # metion the previously there was a REST to CWC with token which was less user friendly
-            command='''kubectl create -f - <<'EOF'
-apiVersion: ops.f5net.com/v1alpha1
-kind: Qkview
-metadata:
-  generateName: qkview-
-spec:
-  filename: my-qkview
-  description: "Ad-hoc diagnostic collection"
-  timeout: "120s"
-  podPatterns:
-    - "tmm-*"
-EOF''',
+            command=QKVIEW_FLOW_CREATE_YAML,
             post=lambda out, v: (
                 v.update(QKVIEW_ID=m.group(0)) or f"QKVIEW_ID = {m.group(0)}"
                 if (m := re.search(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", out))
@@ -541,18 +546,7 @@ including all subtasks progress and any errors encountered during the collection
         Command(
             scenario="Qkview",
             title="Create a qkview for cancel flow",
-            command='''kubectl create -f - <<'EOF'
-apiVersion: ops.f5net.com/v1alpha1
-kind: Qkview
-metadata:
-  generateName: qkview-
-spec:
-  filename: my-qkview-cancel-flow
-  description: "Ad-hoc diagnostic collection"
-  timeout: "120s"
-  podPatterns:
-    - "tmm-*"
-EOF''',
+            command=QKVIEW_CANCEL_FLOW_CREATE_YAML,
             post=lambda out, v: (
                 v.update(QKVIEW_ID=m.group(0)) or f"QKVIEW_ID = {m.group(0)}"
                 if (m := re.search(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", out))
@@ -575,19 +569,7 @@ EOF''',
         Command(
             scenario="Qkview with f5ops plugin",
             title="Create a qkview",
-            note='''The f5ops plugin simplifies the creation of a qkview resource by providing a more user-friendly command.
-kubectl create -f - <<'EOF'
-apiVersion: ops.f5net.com/v1alpha1
-kind: Qkview
-metadata:
-  generateName: qkview-
-spec:
-  filename: my-qkview
-  description: "Ad-hoc diagnostic collection"
-  timeout: "120s"
-  podPatterns:
-    - "tmm-*"
-EOF''',
+            note='''The f5ops plugin simplifies the creation of a qkview resource by providing a more user-friendly command.\n''' + QKVIEW_FLOW_CREATE_YAML,
             command="kubectl f5ops qkview create --filename my-qkview-f5ops",
             post=lambda out, v: (
                 v.update(QKVIEW_ID=m.group(0)) or f"QKVIEW_ID = {m.group(0)}"
