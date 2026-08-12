@@ -48,11 +48,16 @@ def run(cmd: str) -> tuple[str, int]:
 
     Multiline commands (e.g. heredocs) are run through the shell; single-line
     commands are split with shlex to avoid an unnecessary shell wrapper.
+    stdin is detached so a child cannot steal keystrokes from curses.
+    Ctrl+C aborts the child and reports it as a non-zero exit.
     """
-    if "\n" in cmd:
-        result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-    else:
-        result = subprocess.run(shlex.split(cmd), capture_output=True, text=True)
+    kwargs = dict(capture_output=True, text=True, stdin=subprocess.DEVNULL)
+    args = (cmd,) if "\n" in cmd else (shlex.split(cmd),)
+    shell = "\n" in cmd
+    try:
+        result = subprocess.run(*args, shell=shell, **kwargs)
+    except KeyboardInterrupt:
+        return "<interrupted>", 130
     output = result.stdout
     if result.stderr:
         output += ("\n" if output and not output.endswith("\n") else "") + result.stderr
@@ -225,6 +230,12 @@ def _draw(stdscr, commands, variables, selected, output_lines, output_offset, st
 def interactive(stdscr, commands: list[Command], variables: dict[str, str]) -> None:
     curses.curs_set(0)
     stdscr.keypad(True)
+    try:
+        curses.mousemask(curses.BUTTON4_PRESSED | curses.BUTTON5_PRESSED | getattr(curses, "REPORT_MOUSE_POSITION", 0))
+        # No delay between click press/release so wheel events aren't merged.
+        curses.mouseinterval(0)
+    except curses.error:
+        pass
     colors = _init_colors()
 
     # Preserve first-seen order of scenarios so navigation is predictable.
@@ -249,23 +260,43 @@ def interactive(stdscr, commands: list[Command], variables: dict[str, str]) -> N
         key = stdscr.getch()
 
         if key in (curses.KEY_UP, ord("k")):
-            selected = max(0, selected - 1)
+            new_selected = max(0, selected - 1)
+            if new_selected != selected:
+                selected = new_selected
+                output_lines = []
+                output_offset = 0
         elif key in (curses.KEY_DOWN, ord("j")):
-            selected = min(len(visible) - 1, selected + 1)
+            new_selected = min(len(visible) - 1, selected + 1)
+            if new_selected != selected:
+                selected = new_selected
+                output_lines = []
+                output_offset = 0
         elif key in (curses.KEY_LEFT, ord("h")):
             if scenario_idx > 0:
                 scenario_idx -= 1
                 selected = 0
+                output_lines = []
                 output_offset = 0
         elif key in (curses.KEY_RIGHT, ord("l")):
             if scenario_idx < len(scenarios) - 1:
                 scenario_idx += 1
                 selected = 0
+                output_lines = []
                 output_offset = 0
         elif key == curses.KEY_PPAGE:
             output_offset = min(output_offset + 10, len(output_lines))
         elif key == curses.KEY_NPAGE:
             output_offset = max(output_offset - 10, 0)
+        elif key == curses.KEY_MOUSE:
+            try:
+                _, _, _, _, bstate = curses.getmouse()
+            except curses.error:
+                bstate = 0
+            # Wheel up scrolls back through history; wheel down toward newest.
+            if bstate & curses.BUTTON4_PRESSED:
+                output_offset = min(output_offset + 3, len(output_lines))
+            elif bstate & getattr(curses, "BUTTON5_PRESSED", 0):
+                output_offset = max(output_offset - 3, 0)
         elif key == curses.KEY_HOME:
             output_offset = len(output_lines)
         elif key == curses.KEY_END:
@@ -346,8 +377,16 @@ spec:
   podPatterns:
     - "tmm-*"
 EOF'''
-
+    QKVIEW_CANCEL_COMMAND = '''kubectl create --raw "/apis/ops.f5net.com/v1alpha1/qkviews/$QKVIEW_ID/cancel" -f - <<'EOF'     
+{}
+EOF'''
     commands = [
+        Command(
+            scenario="Log Level",
+            title="Monitor $CONTAINER logs for log level changes (grep for newLevel)",
+            command="kubectl logs -f deploy/$DEPLOYMENT -n $NAMESPACE -c f5-toda-kal | grep \"new level set\"",
+            dontExecute=True,
+        ),
         Command(
             scenario="Log Level",
             title="List current log levels",
@@ -432,34 +471,14 @@ EOF'''
         ),
         Command(
             scenario="EDIT",
-            title=f"Set log level of $CONTAINER2 to NOTICE",
-            command="kubectl f5ops loglevel set $NAME $CONTAINER2 ERROR -n $NAMESPACE",
-        ),
-        Command(
-            scenario="EDIT",
-            title="List log levels to verify the reset",
-            command="kubectl f5ops loglevel list -n $NAMESPACE",
-        ),
-        Command(
-            scenario="EDIT",
             title=f"Edit log level resource directly",
+            note="This command is also supported via the f5ops pulgin:\nkubectl f5ops loglevel edit $NAME -n $NAMESPACE",
             command="kubectl edit loglevel $NAME -n $NAMESPACE",
             dontExecute=True,
         ),
         Command(
             scenario="EDIT",
-            title="List log levels to verify the reset",
-            command="kubectl f5ops loglevel list -n $NAMESPACE",
-        ),
-        Command(
-            scenario="EDIT",
-            title=f"Edit log level resource directly using f5ops plugin",
-            command="kubectl f5ops loglevel edit $NAME -n $NAMESPACE",
-            dontExecute=True,
-        ),
-        Command(
-            scenario="EDIT",
-            title="List log levels to verify the reset",
+            title="List log levels to verify edit",
             command="kubectl f5ops loglevel list -n $NAMESPACE",
         ),
         Command(
@@ -531,36 +550,18 @@ EOF'''
             title="Get qkview content in yaml format",
             command="kubectl get qkviews $QKVIEW_ID -oyaml",
         ),
-        Command(
-            scenario="Qkview",
-            title="Get qkview status in yaml format",
-            note='''The status subresource provides information about the current state of the qkview resource, 
-including all subtasks progress and any errors encountered during the collection process.''',
-            command="kubectl get qkviews --subresource=status $QKVIEW_ID -oyaml",
-        ),
+#         Command(
+#             scenario="Qkview",
+#             title="Get qkview status in yaml format",
+#             note='''The status subresource provides information about the current state of the qkview resource, 
+# including all subtasks progress and any errors encountered during the collection process.''',
+#             command="kubectl get qkviews --subresource=status $QKVIEW_ID -oyaml",
+#         ),
         Command(
             scenario="Qkview",
             title="List qkview with filename filter",
             command="kubectl get qkviews --field-selector=filename=my-qkview",
         ),
-        Command(
-            scenario="Qkview",
-            title="Create a qkview for cancel flow",
-            command=QKVIEW_CANCEL_FLOW_CREATE_YAML,
-            post=lambda out, v: (
-                v.update(QKVIEW_ID=m.group(0)) or f"QKVIEW_ID = {m.group(0)}"
-                if (m := re.search(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", out))
-                else "<no qkview id found in output>"
-            ),
-        ),
-        Command(
-            scenario="Qkview",
-            title="Cancel qkview",
-            command='''kubectl create --raw "/apis/ops.f5net.com/v1alpha1/qkviews/$QKVIEW_ID/cancel" -f - <<'EOF'     
-{}
-EOF''',
-        ),
-
         Command(
             scenario="Qkview with f5ops plugin",
             title="List qkview",
@@ -584,10 +585,13 @@ EOF''',
         ),
         Command(
             scenario="Qkview with f5ops plugin",
+            note='''The status subresource provides information about the current state of the qkview resource, 
+including all subtasks progress and any errors encountered during the collection process.
+The pure kubernetes command is:
+kubectl get qkviews --subresource=status $QKVIEW_ID -oyaml''',
             title="Get qkview status",
             command="kubectl f5ops qkview status $QKVIEW_ID",
         ),
-
         Command(
             scenario="Qkview with f5ops plugin",
             note='''The f5ops plugin simplifies the download of a qkview file by providing a more user-friendly command.
@@ -603,14 +607,13 @@ kubectl get --raw "/apis/ops.f5net.com/v1alpha1/qkviews/$QKVIEW_ID/download"''',
         Command(
             scenario="Qkview with f5ops plugin",
             title="View Qkview file in file system",
-            command="ls -l $QKVIEW_FILE",
+            command="ls -ltrh $QKVIEW_FILE",
         ),
         Command(
             scenario="Qkview with f5ops plugin",
             title="List qkview with filename filter",
             command="kubectl f5ops qkview list --filename=my-qkview-f5ops",
         ),
-
         Command(
             scenario="Qkview with f5ops plugin",
             title="Create a qkview for cancel",
@@ -624,10 +627,7 @@ kubectl get --raw "/apis/ops.f5net.com/v1alpha1/qkviews/$QKVIEW_ID/download"''',
         Command(
             scenario="Qkview with f5ops plugin",
             title="Cancel qkview",
-            note='''The f5ops plugin simplifies the cancellation of a qkview resource by providing a more user-friendly command.
-kubectl create --raw "/apis/ops.f5net.com/v1alpha1/qkviews/$QKVIEW_ID/cancel" -f - <<'EOF'     
-{}
-EOF''',
+            note='''The f5ops plugin simplifies the cancellation of a qkview resource by providing a more user-friendly command:\n''' + QKVIEW_CANCEL_COMMAND,
             command="kubectl f5ops qkview cancel $QKVIEW_ID",
         ),
         Command(
@@ -639,6 +639,11 @@ EOF''',
             scenario="Qkview with f5ops plugin",
             title="Get qkview create help",
             command="kubectl f5ops qkview create --help",
+        ),
+        Command(
+            scenario="Qkview with f5ops plugin",
+            title="Get qkview content",
+            command="kubectl f5ops qkview get b3a709ea-647b-49ab-83dc-761efeab37a9",
         ),
     ]
 
