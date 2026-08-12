@@ -111,7 +111,7 @@ def _draw(stdscr, commands, variables, selected, output_lines, output_offset, st
     # top border + title
     _safe_addnstr(stdscr, 0, 0, "╭" + "─" * (w - 2) + "╮", w, colors["border"])
     scenario_part = f" ◀ {scenario_label} ▶ —" if scenario_label else ""
-    title = f" Shell demo{scenario_part} ↑↓ nav  ←→ scenario  ⭵ run  c clear  PgUp/PgDn scroll  q quit "
+    title = f" Shell demo{scenario_part} ↑↓ nav  ←→ scenario  ⭵ run  c clear  PgUp/PgDn scroll  m mouse  q quit "
     _safe_addnstr(stdscr, 0, max(2, (w - len(title)) // 2), title, w - 4, colors["title"])
 
     # command panel
@@ -227,15 +227,23 @@ def _draw(stdscr, commands, variables, selected, output_lines, output_offset, st
     stdscr.refresh()
 
 
+def _set_mouse(enabled: bool) -> bool:
+    try:
+        if enabled:
+            curses.mousemask(curses.BUTTON4_PRESSED | curses.BUTTON5_PRESSED
+                             | getattr(curses, "REPORT_MOUSE_POSITION", 0))
+            curses.mouseinterval(0)
+        else:
+            curses.mousemask(0)
+        return enabled
+    except curses.error:
+        return False
+
+
 def interactive(stdscr, commands: list[Command], variables: dict[str, str]) -> None:
     curses.curs_set(0)
     stdscr.keypad(True)
-    try:
-        curses.mousemask(curses.BUTTON4_PRESSED | curses.BUTTON5_PRESSED | getattr(curses, "REPORT_MOUSE_POSITION", 0))
-        # No delay between click press/release so wheel events aren't merged.
-        curses.mouseinterval(0)
-    except curses.error:
-        pass
+    mouse_on = _set_mouse(True)
     colors = _init_colors()
 
     # Preserve first-seen order of scenarios so navigation is predictable.
@@ -306,6 +314,10 @@ def interactive(stdscr, commands: list[Command], variables: dict[str, str]) -> N
             output_offset = 0
             status = "Output cleared."
             status_attr = colors["dim"]
+        elif key == ord("m"):
+            mouse_on = _set_mouse(not mouse_on)
+            status = "Mouse ON (wheel scrolls)" if mouse_on else "Mouse OFF (drag to select text)"
+            status_attr = colors["info"]
         elif key in (curses.KEY_ENTER, 10, 13):
             item = visible[selected]
             cmd = render(item.command, variables)
